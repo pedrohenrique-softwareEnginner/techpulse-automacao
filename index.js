@@ -35,7 +35,7 @@ async function executarAutomacao() {
         const conteudoMatch = itemConteudo.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) || itemConteudo.match(/<description>([\s\S]*?)<\/description>/);
         
         // 🌟 NOVA CAPTURA JS: Procura a tag <link> original da notícia
-        const linkMatch = itemConteudo.match(/<link>([\s\S]*?)<\/link>/);
+        const linkMatch = itemConteudo.match(/<link>\s*([\s\S]*?)\s*<\/link>/);
         
         const titulo = tituloMatch ? tituloMatch[1].trim() : "Sem título";
         const conteudo = conteudoMatch ? conteudoMatch[1].trim() : "";
