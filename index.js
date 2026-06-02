@@ -1,72 +1,82 @@
-// Importamos as bibliotecas necessárias
-const { createClient } = require('@supabase/supabase-js');
-const Parser = require('rss-parser');
+// ==========================================================================
+// CONFIGURAÇÃO DO BOT TECHPULSE (CAPTURA RSS + INJEÇÃO NO SUPABASE VIA NODE.JS)
+// ==========================================================================
 
-// 1. Configurações de conexão
-const SUPABASE_URL = "https://knjivcnrpnpjcvyeeztj.supabase.co"; 
+// Resgata as credenciais das variáveis de ambiente com segurança do GitHub Secrets
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-// 🛡️ SECURITY BY DESIGN: A chave secreta nunca fica exposta no código cru.
-// Ela é lida dinamicamente da memória segura do ambiente de execução (servidor ou nuvem).
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-
-if (!SUPABASE_SERVICE_KEY) {
-    console.error("[❌ ERRO] A variável de ambiente SUPABASE_SERVICE_KEY não foi configurada.");
-    process.exit(1);
-}
-
-// Inicializa o cliente do Supabase com privilégios de escrita (backend admin)
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-const parser = new Parser();
-
-async function rodarRoboNoticias() {
-    console.log("[ROBÔ] Iniciando varredura de notícias matinais...");
-
+async function executarAutomacao() {
+    console.log(`⏰ Execução iniciada em: ${new Date().toLocaleString('pt-PT')}`);
+    console.log("📡 Acedendo ao feed RSS do TecMundo...");
+    
+    const urlFeed = "https://rss.tecmundo.com.br/feed";
+    
     try {
-        // 2. Consome o RSS Feed Real do TecMundo (dados limpos e organizados)
-        const feedUrl = "https://rss.tecmundo.com.br/feed";
-        const feed = await parser.parseURL(feedUrl);
-
-        if (!feed.items || feed.items.length === 0) {
-            console.log("[❌ ERRO] Nenhum artigo encontrado no Feed RSS.");
+        // Faz a requisição para obter o XML do feed do TecMundo
+        const respostaFeed = await fetch(urlFeed);
+        if (!respostaFeed.ok) throw new Error(`Erro ao aceder ao RSS: ${respostaFeed.status}`);
+        
+        const xmlTexto = await respostaFeed.text();
+        
+        // Extrai o primeiro <item> (a notícia mais recente) usando Expressão Regular (Regex)
+        const itemRegex = /<item>([\s\S]*?)<\/item>/;
+        const matchItem = xmlTexto.match(itemRegex);
+        
+        if (!matchItem) {
+            console.log("❌ Nenhuma estrutura <item> encontrada no RSS.");
             return;
         }
-
-        // Pegamos a notícia mais recente (posição 0 do array)
-        const ultimaNoticia = feed.items[0];
-
-        // 3. Arrumar e estruturar o texto para ficar coerente com o nosso portal
-        const tagFinal = "Destaque Tech";
-        const tituloFinal = ultimaNoticia.title;
         
-        // O RSS traz o texto com algumas tags HTML. Este regex limpa e pega apenas o início do texto
-        let resumoLimpo = ultimaNoticia.contentSnippet || ultimaNoticia.content || "";
-        resumoLimpo = resumoLimpo.replace(/<[^>]*>/g, '').substring(0, 200) + "...";
-
-        // Cria o corpo expandido para o Modal dinâmico
-        const conteudoCompletoFinal = `Artigo completo indexado via automação TechPulse. Original publicado em: ${ultimaNoticia.link}. Conteúdo expandido: ${ultimaNoticia.contentSnippet || 'Verifique o link original para ler a matéria na íntegra.'}`;
-
-        console.log(`[ROBÔ] Nova notícia capturada: "${tituloFinal}"`);
-
-        // 4. Injetar (INSERT) os dados diretamente na tabela do Supabase Cloud
-        const { data, error } = await supabase
-            .from('noticias')
-            .insert([
-                {
-                    tag: tagFinal,
-                    titulo: tituloFinal,
-                    resumo: resumoLimpo,
-                    conteudo_completo: conteudoCompletoFinal
-                }
-            ]);
-
-        if (error) throw error;
-
-        console.log("✅ [SUCESSO] O banco de dados foi atualizado com a notícia do dia!");
-
-    } catch (error) {
-        console.error("[❌ ERRO NA PIPELINE]:", error);
+        const itemConteudo = matchItem[1];
+        
+        // Captura as tags e limpa possíveis blocos CDATA que o TecMundo envia
+        const tituloMatch = itemConteudo.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) || itemConteudo.match(/<title>([\s\S]*?)<\/title>/);
+        const conteudoMatch = itemConteudo.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) || itemConteudo.match(/<description>([\s\S]*?)<\/description>/);
+        
+        // 🌟 NOVA CAPTURA JS: Procura a tag <link> original da notícia
+        const linkMatch = itemConteudo.match(/<link>([\s\S]*?)<\/link>/);
+        
+        const titulo = tituloMatch ? tituloMatch[1].trim() : "Sem título";
+        const conteudo = conteudoMatch ? conteudoMatch[1].trim() : "";
+        const link_noticia = linkMatch ? linkMatch[1].trim() : "https://www.tecmundo.com.br";
+        
+        console.log(`✅ Notícia capturada com sucesso: "${titulo}"`);
+        
+        // Preparação do envio para a API Rest do teu Supabase Cloud
+        console.log("🚀 Preparando a injeção de dados no Supabase Cloud...");
+        const urlApi = `${SUPABASE_URL}/rest/v1/noticias`;
+        
+        // 🌟 PAYLOAD ATUALIZADO: Enviamos a nova coluna link_noticia para o banco
+        const dados = {
+            titulo: titulo,
+            conteudo: conteudo,
+            link_noticia: link_noticia
+        };
+        
+        const respostaSupabase = await fetch(urlApi, {
+            method: "POST",
+            headers: {
+                "apikey": SUPABASE_KEY,
+                "Authorization": `Bearer ${SUPABASE_KEY}`,
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            },
+            body: JSON.stringify(dados)
+        });
+        
+        if (respostaSupabase.status === 200 || respostaSupabase.status === 201) {
+            console.log("🔥 SUCESSO ABSOLUTO: Notícia e Link guardados na nuvem do Supabase!");
+        } else {
+            const erroDetalhes = await respostaSupabase.text();
+            console.log(`❌ Erro ao salvar no Supabase. Status: ${respostaSupabase.status}`);
+            console.log(`Detalhes: ${erroDetalhes}`);
+        }
+        
+    } catch (erro) {
+        console.error("❌ Falha crítica no motor de automação:", erro);
     }
 }
 
-// Executa o robô
-rodarRoboNoticias();
+// Dispara a execução do script
+executarAutomacao();
