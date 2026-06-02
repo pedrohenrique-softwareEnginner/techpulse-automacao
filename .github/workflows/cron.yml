@@ -1,0 +1,26 @@
+name: Automação Diária de Notícias TechPulse
+
+on:
+  schedule:
+    # ⏱️ Executa todos os dias às 07:00 Horário de Brasília (10:00 UTC)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Permite que tu cliques num botão no GitHub para rodar o robô manualmente quando quiseres
+
+jobs:
+  atualizar-noticias:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Baixar código do repositório
+      uses: actions/checkout@v3
+
+    - name: Configurar o Node.js no servidor do GitHub
+      uses: actions/setup-node@v3
+      with:
+        node-node: '18'
+
+    - name: Instalar dependências do robô
+      run: npm install
+
+    - name: Executar o Script do Robô
+      run: node index.js
